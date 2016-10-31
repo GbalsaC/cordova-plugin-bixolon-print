@@ -3,7 +3,15 @@ BixolonPrint Corodva Plugin
 
 Cross-platform BixolonPrint Plugin for Cordova / PhoneGap. Forked from [alfonsovinti](https://github.com/alfonsovinti/cordova-plugin-bixolon-print.git)
 
-Adding support for QRCode, 1D BarCode, MSR Reader listener, Connection listener
+### Additional Features
+
+- QRCode printing
+- 1D Barcode printing
+- MSR Reader listener
+- Connection listener
+- SmartCard reader:
+  - Thai National IDCard (Type 1, Type 2)
+  - Credit Card (Under development)
 
 ### Supported Platforms
 
@@ -177,6 +185,26 @@ cordova.plugins.bixolonPrint.startMsrReaderListener(connectionCallback, errorCal
 
 // Stop MSR Reader listener
 cordova.plugins.bixolonPrint.stopMsrReaderListener(successCallback, errorCallback);
+```
+
+### SCR
+```javascript
+// Start SCR Listener
+cordova.plugins.bixolonPrint.startSmartCardListener(smartCardHandler, errorCallback);
+
+// Stop SCR listener
+cordova.plugins.bixolonPrint.stopSmartCardListener();
+
+// Power Up SmartCard
+cordova.plugins.bixolonPrint.powerUpSmartCard(responseHandler, errorCallback);
+
+// Get SmartCard card status
+cordova.plugins.bixolonPrint.getSmartCardStatus(responseHandler, errorCallback);
+
+// Read SmartCard (TH National ID)
+var flag = true // true: included read citizen image
+
+cordova.plugins.bixolonPrint.readThIdCardAll(flag, responseHandler, errorCallback)
 ```
 
 ## Examples

@@ -27,6 +27,7 @@
 
 package it.alfonsovinti.cordova.plugins.bixolonprint;
 
+import java.sql.Connection;
 import java.util.Map;
 import java.util.HashMap;
 //import java.util.Queue;
@@ -46,16 +47,15 @@ import com.bixolon.printer.BixolonPrinter;
 import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.bluetooth.BluetoothDevice;
-import android.content.BroadcastReceiver;
-import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.DialogInterface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.util.Log;
 import android.widget.Toast;
+
+import it.alfonsovinti.cordova.plugins.bixolonprint.features.ConnectionListener;
+import it.alfonsovinti.cordova.plugins.bixolonprint.features.SmartCardReader;
 
 public class BixolonPrint extends CordovaPlugin {
 
@@ -69,10 +69,6 @@ public class BixolonPrint extends CordovaPlugin {
     public static final String ACTION_CUT_PAPER = "cutPaper";
     public static final String ACTION_START_MSR_READER_LISTENER = "startMsrReaderListener";
     public static final String ACTION_STOP_MSR_READER_LISTENER = "stopMsrReaderListener";
-    public static final String ACTION_START_CONNECTION_LISTENER = "startConnectionListener";
-    public static final String ACTION_RECONNECT = "reconnect";
-    public static final String ACTION_DISCONNECT = "disconnect";
-    public static final String ACTION_STOP_CONNECTION_LISTENER = "stopConnectionListener";
 
     // Alignment string
     public static final String ALIGNMENT_LEFT = "LEFT";
@@ -146,7 +142,9 @@ public class BixolonPrint extends CordovaPlugin {
 
     // MSR Reader
     private CallbackContext msrReaderCallbackContext;
-    private CallbackContext connectionListenerCallbackContext;
+
+    private ConnectionListener connectionListener;
+    private SmartCardReader smartCardReader;
 
     @Override
     public void initialize(CordovaInterface cordova, CordovaWebView webView) {
@@ -164,6 +162,9 @@ public class BixolonPrint extends CordovaPlugin {
         this.actionError = null;
         this.lastActionArgs = null;
         this.lastActionName = null;
+
+        this.smartCardReader = new SmartCardReader(this);
+        this.connectionListener = new ConnectionListener(this);
 
         Log.d(TAG, "BixolonPrint.initialize_END");
     }
@@ -227,19 +228,36 @@ public class BixolonPrint extends CordovaPlugin {
         } else if (ACTION_STOP_MSR_READER_LISTENER.equals(action)) {
             this.optAutoConnect = true;
             this.stopMsrReaderListener();
-        } else if (ACTION_RECONNECT.equals(action)) {
+        } else if (this.connectionListener.ACTION_RECONNECT.equals(action)) {
             this.optAutoConnect = true;
-        } else if (ACTION_DISCONNECT.equals(action)) {
+        } else if (this.connectionListener.ACTION_DISCONNECT.equals(action)) {
             this.disconnect();
             return true;
-        } else if (ACTION_START_CONNECTION_LISTENER.equals(action)) {
+        } else if (this.connectionListener.ACTION_START_CONNECTION_LISTENER.equals(action)) {
             this.optAutoConnect = true;
-            if(!this.startConnectionListener()) {
+            if(!this.connectionListener.startConnectionListener()) {
                 return true;
             }
-        } else if (ACTION_STOP_CONNECTION_LISTENER.equals(action)) {
+        } else if (this.connectionListener.ACTION_STOP_CONNECTION_LISTENER.equals(action)) {
             this.optAutoConnect = true;
-            this.stopConnectionListener();
+            this.connectionListener.stopConnectionListener();
+        } else if (this.smartCardReader.ACTION_START_SMARTCARD_LISTENER.equals(action)) {
+            this.optAutoConnect = true;
+            if(!this.smartCardReader.startSmartCardListener()) {
+                return true;
+            }
+        } else if (this.smartCardReader.ACTION_STOP_SMARTCARD_LISTENER.equals(action)) {
+            this.optAutoConnect = true;
+            this.smartCardReader.stopSmartCardListener();
+        } else if (this.smartCardReader.ACTION_SMARTCARD_POWER_UP.equals(action)) {
+            this.optAutoConnect = true;
+        } else if (this.smartCardReader.ACTION_SMARTCARD_POWER_DOWN.equals(action)) {
+            this.optAutoConnect = true;
+        } else if (this.smartCardReader.ACTION_SMARTCARD_GET_STATUS.equals(action)) {
+            this.optAutoConnect = true;
+        } else if (this.smartCardReader.ACTION_SMARTCARD_TH_IDCARD_READALL.equals(action)) {
+            this.optAutoConnect = true;
+            this.smartCardReader.setIsReadAllPhotoIncluded(args.optBoolean(0));
         } else {
             this.isValidAction = false;
             this.cbContext.error("Invalid Action");
@@ -276,6 +294,11 @@ public class BixolonPrint extends CordovaPlugin {
     private void onConnect() {
         Log.d(TAG, "BixolonPrint.onConnect_START");
 
+        boolean isNeedToSendConnectionData = true;
+
+        if(this.mIsConnected)
+            isNeedToSendConnectionData = false;
+
         this.mIsConnected = true;
 
         if (ACTION_PRINT_TEXT.equals(this.lastActionName)) {
@@ -288,9 +311,18 @@ public class BixolonPrint extends CordovaPlugin {
             this.cutPaper();
         } else if (ACTION_GET_STATUS.equals(this.lastActionName)) {
             this.getStatus();
+        } else if (this.smartCardReader.ACTION_SMARTCARD_POWER_UP.equals(this.lastActionName)) {
+            this.smartCardReader.powerUpSmartCard();
+        } else if (this.smartCardReader.ACTION_SMARTCARD_POWER_DOWN.equals(this.lastActionName)) {
+            this.smartCardReader.powerDownSmartCard();
+        } else if (this.smartCardReader.ACTION_SMARTCARD_GET_STATUS.equals(this.lastActionName)) {
+            this.smartCardReader.getSmartCardStatus();
+        } else if (this.smartCardReader.ACTION_SMARTCARD_TH_IDCARD_READALL.equals(this.lastActionName)) {
+            this.smartCardReader.readAll();
         }
 
-        this.sendConnectionData();
+        if(isNeedToSendConnectionData)
+            this.connectionListener.sendConnectionData("Connected.");
 
         Log.d(TAG, "BixolonPrint.onConnect_END");
     }
@@ -340,7 +372,7 @@ public class BixolonPrint extends CordovaPlugin {
                 this.cbContext.success(success);
             }
 
-            this.sendConnectionData();
+            this.connectionListener.sendConnectionData("Disconnected.");
         }
 
         Log.d(TAG, "BixolonPrint.onDisconnect_END");
@@ -668,7 +700,10 @@ public class BixolonPrint extends CordovaPlugin {
     private void onMessageRead(Message msg) {
         Log.d(TAG, "BixolonPrint.onMessageRead_START: " + msg.arg1);
 
-        boolean isMsrTrackDatas = false;
+        String statusStr = "";
+
+        boolean isMsrTrackData = false;
+        boolean isSmartCardData = false;
 
         switch (msg.arg1) {
             case BixolonPrinter.PROCESS_GET_STATUS:
@@ -803,22 +838,29 @@ public class BixolonPrint extends CordovaPlugin {
                         break;
                 }
                 break;
-
             case BixolonPrinter.PROCESS_MSR_TRACK:
                 Bundle bundle = msg.getData();
 
-                isMsrTrackDatas = true;
+                isMsrTrackData = true;
 
                 sendMsrTrackData(getMsrTrackData(bundle), true);
+                break;
+            case BixolonPrinter.PROCESS_SMART_CARD_POWER_UP:
+            case BixolonPrinter.PROCESS_SMART_CARD_POWER_DOWN:
+            case BixolonPrinter.PROCESS_SMART_CARD_STATUS:
+            case BixolonPrinter.PROCESS_SMART_CARD_EXCHANGE_APDU:
+                isSmartCardData = true;
+                this.smartCardReader.processMessageRead(msg);
                 break;
         }
 
         Log.d(TAG, "BixolonPrint.onMessageRead_END");
 
-        if(!isMsrTrackDatas)
+        if(!(isMsrTrackData || isSmartCardData))
             this.getStatus();
     }
 
+    // MSR Reader Listener
     private boolean startMsrReaderListener() {
         if(this.msrReaderCallbackContext != null) {
             this.cbContext.error("MSR Reader listener already started.");
@@ -841,48 +883,6 @@ public class BixolonPrint extends CordovaPlugin {
         this.sendMsrTrackData(new JSONObject(), false);
         this.msrReaderCallbackContext = null;
         //this.cbContext.success();
-    }
-
-    private boolean startConnectionListener() {
-        if(this.connectionListenerCallbackContext != null) {
-            this.cbContext.error(createConnectionData("Connection listener already started."));
-            return false;
-        }
-        this.connectionListenerCallbackContext = this.cbContext;
-        //this.cbContext.success(createConnectionData("Connection listener started."));
-        return true;
-    }
-
-    private JSONObject createConnectionData(String message) {
-        JSONObject obj = new JSONObject();
-
-        String msg = "";
-
-        if(message != null)
-            msg = message;
-
-        try {
-            obj.put("isConnected", this.mIsConnected);
-            obj.put("message", message);
-        } catch(JSONException e) {
-            Log.e(TAG, "BixolonPrint.createConnectionData: " + e.getMessage(), e);
-        }
-
-        return obj;
-    }
-
-    private void sendConnectionData() {
-        if(this.connectionListenerCallbackContext != null) {
-            PluginResult result = new PluginResult(PluginResult.Status.OK, createConnectionData(null));
-            result.setKeepCallback(true);
-            this.connectionListenerCallbackContext.sendPluginResult(result);
-        }
-    }
-
-    private void stopConnectionListener() {
-        this.sendConnectionData();
-        this.connectionListenerCallbackContext = null;
-        //this.cbContext.success("Connection listener stopped.");
     }
 
     private JSONObject getMsrTrackData(Bundle bundle) {
@@ -916,6 +916,15 @@ public class BixolonPrint extends CordovaPlugin {
         }
 
         return obj;
+    }
+    // MSR Reader Listener
+
+    public CallbackContext getCallbackContext() {
+        return this.cbContext;
+    }
+
+    public BixolonPrinter getPrinter() {
+        return this.mBixolonPrinter;
     }
 
 	/*         METODI ACCESSORI
